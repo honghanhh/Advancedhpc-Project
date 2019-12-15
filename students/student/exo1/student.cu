@@ -167,8 +167,6 @@ __device__ void scan(const int py)
         __syncthreads();
     }
 }
-//only first thread writes back
-// namespace
 
 __device__ void apply_filter(
     const uchar *const d_V,
