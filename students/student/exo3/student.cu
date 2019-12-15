@@ -5,7 +5,7 @@ namespace {
 }
 
 bool StudentWork3::isImplemented() const {
-	return false;
+	return true;
 }
 
 StudentWork3& StudentWork3::parseCommandLine(const int argc, const char**argv) {

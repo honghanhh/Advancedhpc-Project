@@ -53,17 +53,38 @@ __device__ void fill_shared_memory(
     for (unsigned tid = threadIdx.x; tid < filter_size * filter_size; tid += blockDim.x)
     {
         // TODO: histogram with all neighbors
-        // s_Histo[d_V[tid]]++;
 
         // Define neigbor in the filter
-        int x = startX + threadIdx.x % filter_size;
-        int y = startY + threadIdx.x / filter_size;
+        int tx = startX + tid % filter_size;
+        int ty = startY + tid / filter_size;
+        int x, y;
         // check out of bound
-        if ((x >= 0 && y >= 0) && (x < width && y < height))
+        if (tx < 0)
         {
-            atomicAdd(&s_Histo[d_V[y * width + x]], 1); //pixel of image and index
-            // continue;
+            x = -tx;
         }
+        else if (tx >= width)
+        {
+            x = 2 * width - 1 - tx;
+        }
+        else
+        {
+            x = tx;
+        }
+
+        if (ty < 0)
+        {
+            y = -ty;
+        }
+        else if (ty >= height)
+        {
+            y = 2 * height - 1 - ty;
+        }
+        else
+        {
+            y = ty;
+        }
+        atomicAdd(&s_Histo[(unsigned)d_V[y * width + x]], 1); //pixel of image and index
     }
     __syncthreads();
 }
@@ -83,12 +104,30 @@ __device__ void update_histo(
     {
         // TODO: modify histogram, remove old top line, add new bottom one
         // Define neigbor in the filter
-        int x = startX + threadIdx.x % filter_size;
+        int tx = startX + tid % filter_size;
+        int x;
         // check out of bound
-
-        if (((x > 0) && (x < width)) && ((startY - 1) >= 0) && ((startY + filter_size - 1) >= 0))
+        if (tx < 0)
         {
-            atomicAdd(&s_Histo[d_V[startY * width + x]], 1); //pixel of image and index
+            x = -tx;
+        }
+        else if (tx >= width)
+        {
+            x = 2 * width - 1 - tx;
+        }
+        else
+        {
+            x = tx;
+        }
+
+        if (startY - 1 >= 0)
+        {
+            atomicSub(&s_Histo[(unsigned)d_V[(startY - 1) * width + x]], 1); //pixel of image and index
+            // continue;
+        }
+        if (startY + filter_size - 1 < height)
+        {
+            atomicAdd(&s_Histo[(unsigned)d_V[(startY + filter_size - 1) * width + x]], 1); //pixel of image and index
             // continue;
         }
     }
@@ -105,24 +144,31 @@ __device__ void scan(const int py)
     s_scan[threadIdx.x] = s_Histo[threadIdx.x];
     __syncthreads();
     // TODO: a scan into the current block (using shared memory)
+    int a = 0;
+    int s = 0;
     //Reduntion is cache
     for (int offset = 1; offset < 256; offset *= 2)
     {
 
-        if ((threadIdx.x - offset) >= 0)
+        if (threadIdx.x >= offset)
         {
 
-            unsigned int a = s_scan[threadIdx.x];
-            unsigned int s = s_scan[threadIdx.x - offset];
-            __syncthreads(); // sync to make sure every result stores , all threads reading the right value
+            a = s_scan[threadIdx.x];
+            s = s_scan[threadIdx.x - offset];
             s += a;
-            __syncthreads();
+        }
+        __syncthreads(); // sync to make sure every result stores , all threads reading the right value
+
+        if (threadIdx.x >= offset)
+
+        {
             s_scan[threadIdx.x] = s;
         }
         __syncthreads();
     }
-    //only first thread writes back
 }
+//only first thread writes back
+// namespace
 
 __device__ void apply_filter(
     const uchar *const d_V,
@@ -137,7 +183,7 @@ __device__ void apply_filter(
     // after scan, the histo is a CDF (cumulative distribution function)
     // then only only thread will succeed the following test ;-)
     // TODO
-    if ((!(threadIdx.x > 0) || (s_cdf[threadIdx.x - 1] < limit)) && (s_cdf[threadIdx.x] >= limit))
+    if (((threadIdx.x == 0) || (s_cdf[threadIdx.x - 1] <= limit)) && (s_cdf[threadIdx.x] > limit)) //one value
     {
         d_V_median[py * width + px] = threadIdx.x;
     }
